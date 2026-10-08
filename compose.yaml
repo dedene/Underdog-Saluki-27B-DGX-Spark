@@ -1,0 +1,62 @@
+# Underdog Saluki 27B on one DGX Spark: `docker compose up -d --wait` downloads the pinned GGUF and
+# returns once the OpenAI-compatible API on :8888 answers. Settings: see .env.example.
+name: underdog-saluki
+
+services:
+  # One-shot: fetch the GGUF (7.89 GB) into MODEL_DIR. Resumable, and a no-op once the revision stamp matches.
+  # Uses the llama.cpp image because it already ships curl; the server image is the one we run.
+  download:
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13@sha256:695214dcb4d4062014335702caee98836bbf92c5974b78331c70e152176cbf08}
+    entrypoint: ["bash", "/download.sh"]
+    environment:
+      MODEL_ID: ${MODEL_ID:-ConwayResearch/Underdog-Saluki-27B-1.0}
+      MODEL_REVISION: ${MODEL_REVISION:-1336c0b5d74dfe6ad7f793577092f5effd9f97c6}
+      MODEL_FILE: ${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
+      MMPROJ: ${MMPROJ:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ./tools/download.sh:/download.sh:ro
+      - ${MODEL_DIR:-~/.cache/underdog-saluki}:/models
+    # The image healthcheck probes llama-server's port. This service only runs curl.
+    healthcheck:
+      disable: true
+
+  saluki:
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13@sha256:695214dcb4d4062014335702caee98836bbf92c5974b78331c70e152176cbf08}
+    entrypoint: ["bash", "/serve.sh"]
+    container_name: underdog-saluki
+    depends_on:
+      download:
+        condition: service_completed_successfully
+    gpus: all
+    network_mode: host
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    environment:
+      MODEL_FILE: ${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
+      MMPROJ: ${MMPROJ:-}
+      SERVED_NAME: ${SERVED_NAME:-Underdog-Saluki-27B}
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-8888}
+      NGL: ${NGL:-all}
+      CONTEXT: ${CONTEXT:-262144}
+      PARALLEL: ${PARALLEL:-1}
+      TEMP: ${TEMP:-0.6}
+      TOP_P: ${TOP_P:-0.95}
+      TOP_K: ${TOP_K:-20}
+      MIN_P: ${MIN_P:-0}
+      REASONING_EFFORT: ${REASONING_EFFORT:-}
+      API_KEY: ${API_KEY:-}
+    volumes:
+      - ./tools/serve.sh:/serve.sh:ro
+      - ${MODEL_DIR:-~/.cache/underdog-saluki}:/models:ro
+      - ${RUNTIME_CACHE:-~/.cache/underdog-saluki-dgx-spark}:/root/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:${PORT:-8888}/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10m
+      start_interval: 5s
