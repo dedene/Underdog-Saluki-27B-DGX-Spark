@@ -13,7 +13,7 @@ services:
       MODEL_ID: ${MODEL_ID:-ConwayResearch/Underdog-Saluki-27B-1.0}
       MODEL_REVISION: ${MODEL_REVISION:-1336c0b5d74dfe6ad7f793577092f5effd9f97c6}
       MODEL_FILE: ${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
-      MMPROJ: ${MMPROJ:-}
+      MMPROJ: ${MMPROJ:-mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf}
       SPEC: ${SPEC:-dflash}
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
@@ -38,7 +38,7 @@ services:
       stack: 67108864
     environment:
       MODEL_FILE: ${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
-      MMPROJ: ${MMPROJ:-}
+      MMPROJ: ${MMPROJ:-mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf}
       SPEC: ${SPEC:-dflash}
       SPEC_DRAFT_MAX: ${SPEC_DRAFT_MAX:-}
       SERVED_NAME: ${SERVED_NAME:-Underdog-Saluki-27B}

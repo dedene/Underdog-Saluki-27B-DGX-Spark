@@ -34,7 +34,8 @@ case ${SPEC:-dflash} in
   none) ;;
   *) echo "SPEC must be dflash, mtp or none (got ${SPEC})" >&2; exit 1 ;;
 esac
-[[ -n ${MMPROJ:-} ]] && args+=(--mmproj "/models/${MMPROJ}")
+mmproj=${MMPROJ:-mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf}
+[[ $mmproj != none ]] && args+=(--mmproj "/models/${mmproj}")
 [[ -n ${REASONING_EFFORT:-} ]] && args+=(--reasoning-effort "${REASONING_EFFORT}")
 [[ -n ${API_KEY:-} ]] && args+=(--api-key "${API_KEY}")
 

@@ -6,7 +6,7 @@ Serve Underdog Saluki 27B 1.0 (IQ2-mix GGUF, 7.89 GB, Qwen3.8-27B) on one DGX Sp
 - `compose.yaml`: `download` (one-shot curl of the pinned revision, sha256 checked) -> `saluki` (llama-server, healthcheck).
   Knobs are `${VAR:-default}` plus `tools/serve.sh`. `.env.example` documents them.
 - `tools/download.sh`, `tools/serve.sh`: fetch and launch. The image is the official arm64 CUDA 13 build, so there is no Dockerfile.
-- `tools/check.py`: functional checks (+ `--needle N`). `tools/bench.py`: `/completion` timings, no chat template.
+- `tools/check.py`: functional checks, including an image (+ `--needle N`). `tools/bench.py`: `/completion` timings, no chat template.
   `tools/chatbench.py`: chat-template decode per workload with draft acceptance. Use it to compare `SPEC` settings.
 - `SPEC` (dflash default, mtp, none) picks the drafter in both `download.sh` and `serve.sh`; keep the file names in step.
 
@@ -30,7 +30,7 @@ Serve Underdog Saluki 27B 1.0 (IQ2-mix GGUF, 7.89 GB, Qwen3.8-27B) on one DGX Sp
 - `tools/check.py` passed: model id, thinking off (`42`, no reasoning), thinking on (`15.00`, 978 chars of reasoning), one tool call, streaming.
 - `tools/bench.py`: decode 22.6 tok/s (256 out), prefill 756 tok/s at 7,363 tokens and 706 tok/s at 29,485. CUDA graphs reused. `nvidia-smi` utilization stays N/A on this UMA box.
 - Listening about 3 s after start once the file is local. `n_slots = 1`, `n_ctx_slot = 262144`. About 87 GiB still available with the other containers up.
-- `download.sh` must end with `exit 0`. A trailing `[[ -n $MMPROJ ]] && fetch` returns 1 when vision is off, and Compose then refuses to start the server.
+- `download.sh` must end with `exit 0`. A trailing `[[ ... ]] && fetch` returns 1 when vision is off, and Compose then refuses to start the server.
 - Disable the image healthcheck on `download`. It probes port 8080, which this service never opens.
 - The image sets `LLAMA_ARG_HOST`. `serve.sh` unsets it because the script passes `--host`.
 
@@ -47,8 +47,13 @@ Serve Underdog Saluki 27B 1.0 (IQ2-mix GGUF, 7.89 GB, Qwen3.8-27B) on one DGX Sp
 - "Bedeckt"/"sonnig" in Dutch are tail samples. Saluki: P(Bedeckt)=0.0155, p/pmax 0.036 in a table cell; Q4_K_M 0.0015, p/pmax 0.019.
   Default `MIN_P` is 0.05 for that reason (card: 0). Hermes sends no sampling params, so server defaults apply.
 
+## Findings (2026-10-10, vision)
+- Q8_0 projector + DFlash load together on b11515; `/props` reports vision and video. GPU memory 26,660 -> 27,508 MiB.
+- Text speed unchanged (chatbench quick 54.5 vs 54.6). It read a rendered invoice exactly and described the underdog.ai screenshot.
+- `check.py` vision: three stripes blue, yellow, red, stdlib PNG; skipped when `/props` has no vision.
+
 ## Constraints
 - Saluki is a standard GGUF. Do not wrap it in vLLM or a custom llama.cpp fork; the model card's runtime is stock llama.cpp.
 - Leave `REASONING_EFFORT` unset unless a server-wide default is the goal. The template default is `xhigh`. `enable_thinking: false` is how a request turns thinking off.
-- Vision is opt-in via `MMPROJ`. The text server does not load a projector.
+- Vision is on by default (`MMPROJ` Q8_0). `MMPROJ=none` is the off switch: an empty value falls back to the default in compose.
 - Credits: write our own scripts. Kolibri-1-DGX-Spark is the pattern; do not copy its vLLM flags onto this server.

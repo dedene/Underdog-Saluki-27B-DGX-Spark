@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Does Saluki on llama-server behave? Checks the model listing, the thinking switch, a tool call and
-streaming against a running server, optionally plus needle-in-a-haystack retrieval at long context.
+"""Does Saluki on llama-server behave? Checks the model listing, the thinking switch, a tool call,
+streaming and an image (skipped with MMPROJ=none) against a running server, optionally plus
+needle-in-a-haystack retrieval at long context.
 
   tools/check.py                         # functional checks
   tools/check.py --needle 32000 131072   # also hide a key in N tokens of filler and ask for it back
@@ -9,13 +10,16 @@ streaming against a running server, optionally plus needle-in-a-haystack retriev
 Exit code 1 if anything fails. Standard library only.
 """
 import argparse
+import base64
 import json
 import os
 import random
+import struct
 import sys
 import time
 import urllib.error
 import urllib.request
+import zlib
 
 
 class Server:
@@ -36,7 +40,10 @@ class Server:
         payload = json.load(self._open("/v1/models"))
         return [item.get("id", "") for item in payload.get("data", [])]
 
-    def ask(self, prompt: str, think: bool | None = None, **body) -> dict:
+    def props(self) -> dict:
+        return json.load(self._open("/props"))
+
+    def ask(self, prompt: str | list, think: bool | None = None, **body) -> dict:
         """One non-streamed turn; returns the message plus usage."""
         if think is not None:
             body["chat_template_kwargs"] = {"enable_thinking": think}
@@ -115,6 +122,29 @@ def streaming(srv: Server):
     return ok, f"reasoning {len(think)} chars, answer {text[:70]!r}"
 
 
+def stripes_png(colours: list[tuple[int, int, int]], width: int = 96, height: int = 64) -> bytes:
+    """A PNG of vertical stripes, one per colour, left to right."""
+    row = b"\0" + b"".join(bytes(colours[x * len(colours) // width]) for x in range(width))
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(row * height)) + chunk(b"IEND", b""))
+
+
+def vision(srv: Server):
+    """Three stripes in an order a text-only guess would not produce."""
+    if not srv.props().get("modalities", {}).get("vision"):
+        return None, "server has no projector (MMPROJ=none)"
+    png = stripes_png([(0, 0, 255), (255, 220, 0), (255, 0, 0)])
+    msg = srv.ask([{"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(png).decode()}},
+                   {"type": "text", "text": "Name the colours of the three vertical stripes, left to right. "
+                                            "Comma-separated colour names only."}],
+                  think=False, max_tokens=32, temperature=0)
+    answer = clean(msg["content"])
+    found = [answer.lower().find(word) for word in ("blue", "yellow", "red")]
+    return -1 not in found and found == sorted(found), f"answer {answer!r}"
+
+
 def needle(srv: Server, tokens: int):
     """Hide a key among ~`tokens` tokens of synthetic service logs, at a random depth, and ask for it."""
     rng = random.Random(tokens)
@@ -142,13 +172,13 @@ def main() -> None:
 
     srv = Server(args.url, args.model)
     checks = [(fn.__name__.replace("_", " "), fn) for fn in
-              (model_listed, thinking_off, thinking_on, tool_call, streaming)]
+              (model_listed, thinking_off, thinking_on, tool_call, streaming, vision)]
     checks += [(f"needle {n:,}", lambda s, n=n: needle(s, n)) for n in args.needle]
     failures = 0
     for name, check in checks:
         ok, detail = check(srv)
-        failures += not ok
-        print(f"{'ok  ' if ok else 'FAIL'}  {name:20} {detail}", flush=True)
+        failures += ok is False
+        print(f"{'skip' if ok is None else 'ok  ' if ok else 'FAIL'}  {name:20} {detail}", flush=True)
     sys.exit(failures > 0)
 
 

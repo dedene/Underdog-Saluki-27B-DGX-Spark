@@ -1,17 +1,17 @@
 # Underdog Saluki 27B on a single DGX Spark (llama.cpp, Docker Compose)
 
-Serve [Underdog Saluki 27B 1.0](https://huggingface.co/ConwayResearch/Underdog-Saluki-27B-1.0) on one NVIDIA DGX Spark with stock llama.cpp. One command downloads the pinned GGUF and a speculative drafter, and starts an OpenAI-compatible API at about 53 tok/s on mixed chat work (24 without the drafter).
+Serve [Underdog Saluki 27B 1.0](https://huggingface.co/ConwayResearch/Underdog-Saluki-27B-1.0) on one NVIDIA DGX Spark with stock llama.cpp. One command downloads the pinned GGUF, a speculative drafter and the vision projector, and starts an OpenAI-compatible API at about 53 tok/s on mixed chat work (24 without the drafter).
 
 Saluki is a 2-bit GGUF of Qwen3.8-27B, 7.89 GB, built by [Underdog](https://underdog.ai/saluki) on top of the ISTA-DASLab quant. The model card's runtime is stock llama.cpp: the chat template handles tool calls and thinking, and the server speaks the OpenAI chat API. On a Spark the weights are a small slice of the 128 GB unified memory, so the native 262,144-token context fits with the whole model on the GPU.
 
-**Hardware:** DGX Spark (GB10, sm_121, aarch64), driver 580, CUDA 13, Docker with the NVIDIA Container Toolkit and Compose v2. About 10 GB free disk for the weights and drafter, plus the llama.cpp image.
+**Hardware:** DGX Spark (GB10, sm_121, aarch64), driver 580, CUDA 13, Docker with the NVIDIA Container Toolkit and Compose v2. About 11 GB free disk for the weights, drafter and vision projector, plus the llama.cpp image.
 
 ## Quickstart
 
 ```bash
 git clone https://github.com/dedene/Underdog-Saluki-27B-DGX-Spark.git && cd Underdog-Saluki-27B-DGX-Spark
-docker compose up -d --wait     # download 9 GB (first run only), load, wait until healthy
-tools/check.py                  # thinking switch, tool call, streaming
+docker compose up -d --wait     # download 9.7 GB (first run only), load, wait until healthy
+tools/check.py                  # thinking switch, tool call, streaming, an image
 docker compose down
 ```
 
@@ -27,7 +27,7 @@ curl http://<spark-ip>:8888/v1/chat/completions -H 'Content-Type: application/js
 }'
 ```
 
-Thinking is on by default at effort `xhigh`, which is the Qwen3.8 template default. The trace comes back in `message.reasoning_content` and the answer in `message.content`. Sampling defaults are the model card's general-use preset: temperature 0.6, top_p 0.95, top_k 20.
+Thinking is on by default at effort `xhigh`, which is the Qwen3.8 template default. The trace comes back in `message.reasoning_content` and the answer in `message.content`. Sampling defaults are the model card's general-use preset: temperature 0.6, top_p 0.95, top_k 20, plus our min_p 0.05.
 
 For a fast tool call, turn thinking off and set temperature 0 on that request:
 
@@ -43,10 +43,20 @@ curl http://<spark-ip>:8888/v1/chat/completions -H 'Content-Type: application/js
 }'
 ```
 
+To ask about an image, send it as an `image_url` part. `printf` keeps a large photo out of the argument list:
+
+```bash
+printf '{"model": "Underdog-Saluki-27B", "chat_template_kwargs": {"enable_thinking": false},
+  "messages": [{"role": "user", "content": [
+    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,%s"}},
+    {"type": "text", "text": "What is in this photo?"}]}]}' "$(base64 < photo.jpg | tr -d '\n')" |
+  curl http://<spark-ip>:8888/v1/chat/completions -H 'Content-Type: application/json' -d @-
+```
+
 ## How it is put together
 
 - **Image:** `ghcr.io/ggml-org/llama.cpp:server-cuda13`, pinned to llama.cpp b11515 (`3d65c90d0`). That build is the official arm64 CUDA 13 image. It has DFlash and MTP drafting built in, and the DFlash output-head fix (#30111) that b11459 lacks. On this Spark, `llama-server --list-devices` reports `CUDA0: NVIDIA GB10` with the full unified memory, so the published image is the runtime.
-- **`tools/download.sh`:** curl the pinned revision, and the drafter `SPEC` needs, into `~/.cache/underdog-saluki`. Resume if interrupted, and check the Hugging Face LFS sha256. A stamp file makes the next start a no-op.
+- **`tools/download.sh`:** curl the pinned revision, the drafter `SPEC` needs and the vision projector into `~/.cache/underdog-saluki`. Resume if interrupted, and check the Hugging Face LFS sha256. A stamp file makes the next start a no-op.
 - **`tools/serve.sh`:** `llama-server` with `--jinja`, `--reasoning-format deepseek`, flash attention on, every layer on the GPU, the model card's sampling preset, and the `SPEC` drafter.
 - **Speculative decoding:** a small drafter proposes a few tokens and Saluki checks them in one pass, so one weight read yields several tokens. The default pairs z-lab's [DFlash2 drafter](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2-GGUF) for Qwen3.8-27B (Q4_K_M, 1.14 GB) with llama.cpp's `ngram-mod`, which drafts text the reply repeats from the prompt. Saluki is a quant of Qwen3.8-27B, so the base model's drafter fits.
 - **`compose.yaml`:** the `download` service runs to completion, then `saluki` serves offline from that directory. A healthcheck hits `/health`.
@@ -65,7 +75,7 @@ Copy `.env.example` to `.env` and uncomment what you want to change, then `docke
 | `REASONING_EFFORT` | (template default: xhigh) | Server-wide `low`, `medium`, or `xhigh`. Unset lets each request pass `reasoning_effort` or `enable_thinking`. |
 | `SPEC` | dflash | `dflash`, `mtp`, or `none`. See [Numbers](#numbers). `mtp` uses [Kujira's Saluki file](https://huggingface.co/Kujira/Underdog-Saluki-27B-1.0-MTP-GGUF) with Qwen3.8's MTP head grafted on (8.35 GB, main tensors byte-identical). |
 | `SPEC_DRAFT_MAX` | 4 (dflash), 3 (mtp) | Tokens drafted per step. Longer drafts help code and hurt prose. |
-| `MMPROJ` | (empty, text only) | `mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf` (629 MB) or `-F16.gguf` (928 MB). |
+| `MMPROJ` | `mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf` | Vision projector (629 MB). `-F16.gguf` (928 MB) also works. `none` for text only. |
 | `PORT`, `HOST`, `SERVED_NAME` | 8888, 0.0.0.0, Underdog-Saluki-27B | |
 | `API_KEY` | (empty) | Bearer token, when set. |
 | `MODEL_DIR` | `~/.cache/underdog-saluki` | Weights. |
@@ -102,14 +112,14 @@ What the sweep showed:
 
 The file is 7.89 GB, so a full read of the weights once per token at the Spark's 273 GB/s caps plain decode at about 35 tok/s. Plain decode measures 24, and only drafting gets past the cap.
 
-Once the files are on disk, the server is listening about 3 seconds after start. With `SPEC=dflash` at the full context, llama-server holds 26.7 GB, and about 90 GiB of unified memory stays available. `tools/check.py`, including `--needle 32000`, passes in all three `SPEC` modes. `tools/bench.py` is still the raw-model check (`/completion`, no template). Its repeated sentence is near-perfect for a drafter, so use `tools/chatbench.py` to compare `SPEC` settings.
+Once the files are on disk, the server is listening about 3 seconds after start. With `SPEC=dflash` and vision at the full context, llama-server holds 27.5 GB (26.7 GB with `MMPROJ=none`), and about 90 GiB of unified memory stays available. `tools/check.py`, including `--needle 32000`, passes in all three `SPEC` modes. `tools/bench.py` is still the raw-model check (`/completion`, no template). Its repeated sentence is near-perfect for a drafter, so use `tools/chatbench.py` to compare `SPEC` settings.
 
 ## Notes
 
 - **Thinking and tools.** The model card's fast tool-call preset is thinking off and temperature 0. With thinking on, Saluki often reasons at length before it answers. Per request, `chat_template_kwargs.reasoning_effort` is `xhigh` (default), `medium`, or `low`, and `enable_thinking: false` closes the think block immediately.
 - **Parallel tool calls.** Underdog's write-up says about a fifth of multi-call replies have small formatting slips. A single function call is the case this server is aimed at. `tools/check.py` covers that case.
 - **German spellings in Dutch.** Now and then the 2-bit weights write "Bedeckt" for *bedekt* or "sonnig" for *zonnig*. At the decision point in a Dutch weather table, Saluki gives "Bedeckt" 1.6% probability (0.036 times the top token). Qwen3.8-27B Q4_K_M gives it 0.15%. Both are below the `MIN_P` 0.05 cut, so the server default drops them. Greedy or low-temperature requests were already clean.
-- **Vision.** The main file is text. Set `MMPROJ` to one of the two projector files in the same repo and bring the stack up again. The download service fetches it, and `serve.sh` passes `--mmproj`.
+- **Vision.** Saluki's repo ships a vision projector next to the weights, and the server loads the Q8_0 one by default. Send images the OpenAI way, as an `image_url` part (a data URL works) in a chat message. It read a test invoice line for line and described a screenshot correctly, at about 3-5 s per simple question. The projector costs 0.85 GB and no text speed (54.5 vs 54.6 tok/s on `tools/chatbench.py --quick`), and DFlash keeps drafting the answers. `MMPROJ=none` turns it off; `tools/check.py` then skips its image check.
 - **Port 8888** is a common default for Spark model servers. If another one is running, stop it or set `PORT`.
 - **The API is open on the LAN.** llama-server warns when no API key is set. Set `API_KEY` to require a bearer token.
 - **Memory.** The weights are 7.89 GB. Keep other GPU jobs in mind if you raise `CONTEXT` past the native window or raise `PARALLEL`, because llama-server allocates the context it is given.

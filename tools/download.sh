@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch the pinned Saluki GGUF, the drafter SPEC needs, and the optional vision projector into /models.
+# Fetch the pinned Saluki GGUF, the drafter SPEC needs, and the vision projector (unless MMPROJ=none) into /models.
 # Resumable. A later start is a no-op once the revision stamp matches.
 set -euo pipefail
 
@@ -7,7 +7,7 @@ dest=/models
 model_id=${MODEL_ID:-ConwayResearch/Underdog-Saluki-27B-1.0}
 revision=${MODEL_REVISION:-1336c0b5d74dfe6ad7f793577092f5effd9f97c6}
 file=${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
-mmproj=${MMPROJ:-}
+mmproj=${MMPROJ:-mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf}
 spec=${SPEC:-dflash}
 
 # sha256 of each file at the pinned revision (Hugging Face LFS oid).
@@ -77,6 +77,6 @@ case $spec in
   none) fetch "$file" ;;
   *) echo "SPEC must be dflash, mtp or none (got $spec)" >&2; exit 1 ;;
 esac
-if [[ -n $mmproj ]]; then
+if [[ $mmproj != none ]]; then
   fetch "$mmproj"
 fi
