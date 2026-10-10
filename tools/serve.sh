@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # llama-server arguments for Saluki. Defaults match the model card's general-use preset
-# (thinking on, temperature 0.6, top_p 0.95, top_k 20). Extra arguments from compose are appended.
+# (thinking on, temperature 0.6, top_p 0.95, top_k 20), plus min_p 0.05 against tail slips such as German
+# spellings in Dutch. Extra arguments from compose are appended.
 set -euo pipefail
 
 file=${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
@@ -18,7 +19,7 @@ args=(
   --temp "${TEMP:-0.6}"
   --top-p "${TOP_P:-0.95}"
   --top-k "${TOP_K:-20}"
-  --min-p "${MIN_P:-0}"
+  --min-p "${MIN_P:-0.05}"
 )
 # Speculative decoding. File names match tools/download.sh. ngram-mod drafts text the reply repeats
 # from the prompt or earlier turns (code edits); it takes precedence over the model drafter when it hits.

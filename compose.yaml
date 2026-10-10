@@ -50,7 +50,7 @@ services:
       TEMP: ${TEMP:-0.6}
       TOP_P: ${TOP_P:-0.95}
       TOP_K: ${TOP_K:-20}
-      MIN_P: ${MIN_P:-0}
+      MIN_P: ${MIN_P:-0.05}
       REASONING_EFFORT: ${REASONING_EFFORT:-}
       API_KEY: ${API_KEY:-}
     volumes:

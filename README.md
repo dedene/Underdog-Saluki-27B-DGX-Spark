@@ -61,7 +61,7 @@ Copy `.env.example` to `.env` and uncomment what you want to change, then `docke
 | `CONTEXT` | 262144 | Tokens per sequence. The GGUF's native window. `32768` is the model card's laptop example. |
 | `PARALLEL` | 1 | Server slots. |
 | `NGL` | all | Layers on the GPU. |
-| `TEMP`, `TOP_P`, `TOP_K`, `MIN_P` | 0.6, 0.95, 20, 0 | General-use sampling. A request overrides them. |
+| `TEMP`, `TOP_P`, `TOP_K`, `MIN_P` | 0.6, 0.95, 20, 0.05 | General-use sampling. A request overrides them. `MIN_P` is ours, the card uses 0. See [Notes](#notes). |
 | `REASONING_EFFORT` | (template default: xhigh) | Server-wide `low`, `medium`, or `xhigh`. Unset lets each request pass `reasoning_effort` or `enable_thinking`. |
 | `SPEC` | dflash | `dflash`, `mtp`, or `none`. See [Numbers](#numbers). `mtp` uses [Kujira's Saluki file](https://huggingface.co/Kujira/Underdog-Saluki-27B-1.0-MTP-GGUF) with Qwen3.8's MTP head grafted on (8.35 GB, main tensors byte-identical). |
 | `SPEC_DRAFT_MAX` | 4 (dflash), 3 (mtp) | Tokens drafted per step. Longer drafts help code and hurt prose. |
@@ -108,6 +108,7 @@ Once the files are on disk, the server is listening about 3 seconds after start.
 
 - **Thinking and tools.** The model card's fast tool-call preset is thinking off and temperature 0. With thinking on, Saluki often reasons at length before it answers. Per request, `chat_template_kwargs.reasoning_effort` is `xhigh` (default), `medium`, or `low`, and `enable_thinking: false` closes the think block immediately.
 - **Parallel tool calls.** Underdog's write-up says about a fifth of multi-call replies have small formatting slips. A single function call is the case this server is aimed at. `tools/check.py` covers that case.
+- **German spellings in Dutch.** Now and then the 2-bit weights write "Bedeckt" for *bedekt* or "sonnig" for *zonnig*. At the decision point in a Dutch weather table, Saluki gives "Bedeckt" 1.6% probability (0.036 times the top token). Qwen3.8-27B Q4_K_M gives it 0.15%. Both are below the `MIN_P` 0.05 cut, so the server default drops them. Greedy or low-temperature requests were already clean.
 - **Vision.** The main file is text. Set `MMPROJ` to one of the two projector files in the same repo and bring the stack up again. The download service fetches it, and `serve.sh` passes `--mmproj`.
 - **Port 8888** is a common default for Spark model servers. If another one is running, stop it or set `PORT`.
 - **The API is open on the LAN.** llama-server warns when no API key is set. Set `API_KEY` to require a bearer token.

@@ -43,6 +43,10 @@ Serve Underdog Saluki 27B 1.0 (IQ2-mix GGUF, 7.89 GB, Qwen3.8-27B) on one DGX Sp
 - Greedy text differs between builds and drafters at near-ties, even b11459 vs b11515 with no drafter. Not a bug.
 - Saluki's GGUF is about 20% IQ1_S/IQ1_M and 52% IQ2. TensorFold reads no GGUF, and NVFP4/MLX can't hold these grids exactly.
 
+## Findings (2026-10-10, Dutch slips)
+- "Bedeckt"/"sonnig" in Dutch are tail samples. Saluki: P(Bedeckt)=0.0155, p/pmax 0.036 in a table cell; Q4_K_M 0.0015, p/pmax 0.019.
+  Default `MIN_P` is 0.05 for that reason (card: 0). Hermes sends no sampling params, so server defaults apply.
+
 ## Constraints
 - Saluki is a standard GGUF. Do not wrap it in vLLM or a custom llama.cpp fork; the model card's runtime is stock llama.cpp.
 - Leave `REASONING_EFFORT` unset unless a server-wide default is the goal. The template default is `xhigh`. `enable_thinking: false` is how a request turns thinking off.
