@@ -3,16 +3,18 @@
 name: underdog-saluki
 
 services:
-  # One-shot: fetch the GGUF (7.89 GB) into MODEL_DIR. Resumable, and a no-op once the revision stamp matches.
+  # One-shot: fetch the GGUF (7.89 GB) and the SPEC drafter into MODEL_DIR. Resumable, and a no-op once the
+  # revision stamps match.
   # Uses the llama.cpp image because it already ships curl; the server image is the one we run.
   download:
-    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13@sha256:695214dcb4d4062014335702caee98836bbf92c5974b78331c70e152176cbf08}
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13@sha256:6869e4456217802e5372774be236a9aa93666cfb7f033b7d39cd58b178af6489}
     entrypoint: ["bash", "/download.sh"]
     environment:
       MODEL_ID: ${MODEL_ID:-ConwayResearch/Underdog-Saluki-27B-1.0}
       MODEL_REVISION: ${MODEL_REVISION:-1336c0b5d74dfe6ad7f793577092f5effd9f97c6}
       MODEL_FILE: ${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
       MMPROJ: ${MMPROJ:-}
+      SPEC: ${SPEC:-dflash}
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - ./tools/download.sh:/download.sh:ro
@@ -22,7 +24,7 @@ services:
       disable: true
 
   saluki:
-    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13@sha256:695214dcb4d4062014335702caee98836bbf92c5974b78331c70e152176cbf08}
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13@sha256:6869e4456217802e5372774be236a9aa93666cfb7f033b7d39cd58b178af6489}
     entrypoint: ["bash", "/serve.sh"]
     container_name: underdog-saluki
     depends_on:
@@ -37,6 +39,8 @@ services:
     environment:
       MODEL_FILE: ${MODEL_FILE:-Underdog-Saluki-27B-1.0-IQ2-mix.gguf}
       MMPROJ: ${MMPROJ:-}
+      SPEC: ${SPEC:-dflash}
+      SPEC_DRAFT_MAX: ${SPEC_DRAFT_MAX:-}
       SERVED_NAME: ${SERVED_NAME:-Underdog-Saluki-27B}
       HOST: ${HOST:-0.0.0.0}
       PORT: ${PORT:-8888}
